@@ -1,8 +1,16 @@
 import { requireUser } from "../lib/auth.server.js";
 import { prisma } from "../lib/db.server.js";
+import {
+  buildPromptCtx,
+  createBeatStream,
+  updatePreviousBeat,
+} from "../lib/story-engine.server.js";
+import {
+  buildSystemPrompt,
+  buildUserMessage,
+} from "../lib/story-prompts.server.js";
 import type { Route } from "./+types/api.story-beat";
 
-// Stub — will be replaced with real story engine in Phase 2
 export async function action({ request }: Route.ActionArgs) {
   const user = await requireUser(request);
   const body = await request.json();
@@ -11,7 +19,11 @@ export async function action({ request }: Route.ActionArgs) {
   // Verify story belongs to user
   const story = await prisma.story.findUnique({
     where: { id: storyId },
-    include: { beats: { orderBy: { beatNumber: "asc" } }, style: true, theme: true },
+    include: {
+      beats: { orderBy: { beatNumber: "asc" } },
+      style: true,
+      theme: true,
+    },
   });
 
   if (!story || story.userId !== user.id) {
@@ -19,50 +31,36 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   if (story.isComplete) {
-    return Response.json({ error: "Story is already complete" }, { status: 400 });
+    return Response.json(
+      { error: "Story is already complete" },
+      { status: 400 }
+    );
   }
 
-  // If there's a chosenOption, update the previous beat
-  if (chosenOption && story.beats.length > 0) {
-    const lastBeat = story.beats[story.beats.length - 1];
-    await prisma.storyBeat.update({
-      where: { id: lastBeat.id },
-      data: { chosenOption },
-    });
-  }
+  // Update previous beat with child's choice (before streaming starts)
+  await updatePreviousBeat(story, chosenOption ?? null);
 
-  const nextBeatNumber = story.beats.length + 1;
+  // Build prompts
+  const { promptCtx, nextBeatNumber } = buildPromptCtx(
+    story,
+    chosenOption ?? null
+  );
+  const systemPrompt = buildSystemPrompt(promptCtx);
+  const userMessage = buildUserMessage(promptCtx);
 
-  // STUB: Return placeholder beat until ai.server.ts is implemented
-  const stubSegment =
-    nextBeatNumber === 5
-      ? `And so our friend settled in for a cozy rest, feeling happy and warm. The stars twinkled softly overhead as the world grew quiet and peaceful. What a wonderful adventure it had been!`
-      : `This is beat ${nextBeatNumber} of the story. The ${story.theme.name.toLowerCase()} adventure continues in ${story.style.name} style!`;
+  // Return SSE stream
+  const stream = createBeatStream(
+    story,
+    nextBeatNumber,
+    systemPrompt,
+    userMessage
+  );
 
-  const stubQuestion =
-    nextBeatNumber < 5 ? "What should happen next?" : null;
-  const stubOptions =
-    nextBeatNumber < 5 ? ["Option A", "Option B"] : [];
-
-  const newBeat = await prisma.storyBeat.create({
-    data: {
-      storyId: story.id,
-      beatNumber: nextBeatNumber,
-      segment: stubSegment,
-      question: stubQuestion,
-      options: stubOptions,
-      provider: "stub",
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     },
   });
-
-  // Update story progress
-  await prisma.story.update({
-    where: { id: story.id },
-    data: {
-      currentBeat: nextBeatNumber,
-      isComplete: nextBeatNumber === 5,
-    },
-  });
-
-  return Response.json(newBeat);
 }

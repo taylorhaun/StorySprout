@@ -1,5 +1,5 @@
 import { Link, useLoaderData } from "react-router";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { requireUser } from "../lib/auth.server.js";
 import { prisma } from "../lib/db.server.js";
 import type { Route } from "./+types/story.$storyId";
@@ -40,11 +40,17 @@ export default function StoryPage() {
   const { story } = useLoaderData<typeof loader>();
   const [beats, setBeats] = useState(story.beats);
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const streamEndRef = useRef<HTMLDivElement>(null);
 
   const isComplete = story.isComplete || beats.some((b) => b.beatNumber === 5);
   const latestBeat = beats[beats.length - 1];
   const needsFirstBeat = beats.length === 0;
+  const isStreaming = isLoading && streamingText.length > 0;
+
+  // The beat number currently being generated
+  const nextBeatNumber = beats.length + 1;
 
   // Should we show choice buttons?
   const showChoices =
@@ -54,9 +60,26 @@ export default function StoryPage() {
     latestBeat.question &&
     !latestBeat.chosenOption;
 
+  // Auto-scroll to bottom as streaming text arrives
+  useEffect(() => {
+    if (isStreaming) {
+      streamEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [streamingText, isStreaming]);
+
   async function handleChoice(chosenOption: string | null) {
     setIsLoading(true);
+    setStreamingText("");
     setError(null);
+
+    // Mark the previous beat's choice locally
+    if (chosenOption && latestBeat) {
+      setBeats((prev) =>
+        prev.map((b) =>
+          b.id === latestBeat.id ? { ...b, chosenOption } : b
+        )
+      );
+    }
 
     try {
       const res = await fetch("/api/story-beat", {
@@ -73,20 +96,52 @@ export default function StoryPage() {
         throw new Error(errData?.error || "Something went wrong");
       }
 
-      const newBeat = await res.json();
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
 
-      // Update the previous beat's chosenOption locally
-      if (chosenOption && latestBeat) {
-        setBeats((prev) =>
-          prev.map((b) =>
-            b.id === latestBeat.id ? { ...b, chosenOption } : b
-          )
-        );
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE lines
+        const lines = buffer.split("\n");
+        // Keep the last (potentially incomplete) line in the buffer
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+
+          if (data === "[DONE]") continue;
+
+          try {
+            const parsed = JSON.parse(data);
+
+            if (typeof parsed === "string") {
+              // Raw text chunk — append to streaming display
+              setStreamingText((prev) => prev + parsed);
+            } else if (parsed.type === "complete") {
+              // Final beat with all metadata — add to beats array
+              setBeats((prev) => [...prev, parsed.beat]);
+              setStreamingText("");
+            } else if (parsed.type === "error") {
+              throw new Error(parsed.message);
+            }
+          } catch (e) {
+            // If JSON.parse fails on a chunk, it's a malformed SSE line — skip
+            if (e instanceof SyntaxError) continue;
+            throw e;
+          }
+        }
       }
-
-      setBeats((prev) => [...prev, newBeat]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
+      setStreamingText("");
     } finally {
       setIsLoading(false);
     }
@@ -131,7 +186,7 @@ export default function StoryPage() {
 
       {/* Story Content */}
       <main className="mx-auto max-w-2xl px-6 py-6">
-        {/* Beats */}
+        {/* Completed Beats */}
         {beats.map((beat) => (
           <div key={beat.id} className="mb-8">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-sprout-light">
@@ -149,6 +204,21 @@ export default function StoryPage() {
             )}
           </div>
         ))}
+
+        {/* Streaming Text (live AI generation) */}
+        {isStreaming && (
+          <div className="mb-8">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-sprout-light">
+              {BEAT_LABELS[nextBeatNumber - 1]}
+            </p>
+            <div className="rounded-2xl bg-white p-6 shadow-sm">
+              <p className="whitespace-pre-wrap text-lg leading-relaxed text-gray-700">
+                {streamingText}
+                <span className="ml-0.5 inline-block animate-pulse text-sprout">|</span>
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* First beat trigger */}
         {needsFirstBeat && !isLoading && (
@@ -184,8 +254,8 @@ export default function StoryPage() {
           </div>
         )}
 
-        {/* Loading State */}
-        {isLoading && (
+        {/* Loading (before streaming starts) */}
+        {isLoading && !isStreaming && (
           <div className="mt-8 text-center">
             <p className="animate-pulse text-lg text-gray-400">
               Turning the page...
@@ -212,14 +282,24 @@ export default function StoryPage() {
             <p className="text-4xl">🌟</p>
             <h2 className="mt-2 text-2xl font-bold text-gray-800">The End</h2>
             <p className="mt-1 text-gray-500">Sweet dreams!</p>
-            <Link
-              to="/story/new"
-              className="mt-6 inline-block rounded-2xl bg-sprout px-8 py-3 text-lg font-semibold text-white shadow-lg hover:bg-sprout-dark"
-            >
-              New Story
-            </Link>
+            <div className="mt-6 flex justify-center gap-4">
+              <Link
+                to="/library"
+                className="inline-block rounded-2xl bg-white px-8 py-3 text-lg font-semibold text-gray-600 shadow-lg hover:bg-gray-50"
+              >
+                My Stories
+              </Link>
+              <Link
+                to="/story/new"
+                className="inline-block rounded-2xl bg-sprout px-8 py-3 text-lg font-semibold text-white shadow-lg hover:bg-sprout-dark"
+              >
+                New Story
+              </Link>
+            </div>
           </div>
         )}
+
+        <div ref={streamEndRef} />
       </main>
     </div>
   );

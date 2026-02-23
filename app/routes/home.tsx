@@ -29,6 +29,12 @@ export default function HomePage() {
           {isLoggedIn ? (
             <div className="flex items-center gap-3">
               <Link
+                to="/library"
+                className="rounded-2xl px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-800"
+              >
+                My Stories
+              </Link>
+              <Link
                 to="/story/new"
                 className="rounded-2xl bg-sprout px-5 py-2 text-sm font-semibold text-white hover:bg-sprout-dark"
               >
