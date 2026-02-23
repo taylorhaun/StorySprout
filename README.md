@@ -2,6 +2,8 @@
 
 Interactive AI bedtime story app for kids ages 3-5. Pick a storytelling style, choose a theme, and play through a 5-beat choose-your-own-adventure story with AI-generated text that streams in real-time.
 
+![StorySprout home page](images/screenshot.png)
+
 ## What it does
 
 A parent picks a **style** (Whimsical Rhyme, Calm Bedtime, or Silly & Goofy) and a **theme** (Penguins, Space, Ocean, etc.), then the app generates an interactive story in 5 beats:
