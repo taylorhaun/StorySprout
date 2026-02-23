@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Nunito", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  --color-cream: #FFF8F0;
+  --color-warm-50: #FFF7ED;
+  --color-warm-100: #FFEDD5;
+  --color-warm-200: #FED7AA;
+
+  --color-sprout: #7C3AED;
+  --color-sprout-light: #A78BFA;
+  --color-sprout-dark: #6D28D9;
+
+  --color-teal: #0D9488;
+  --color-teal-light: #5EEAD4;
+  --color-teal-dark: #0F766E;
+}
+
+html,
+body {
+  @apply bg-cream text-gray-800;
+}

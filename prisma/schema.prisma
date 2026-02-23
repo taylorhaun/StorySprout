@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Users ───────────────────────────────────────────────
+
+model User {
+  id             String   @id @default(uuid())
+  email          String?  @unique
+  passwordHash   String?  @map("password_hash")
+  displayName    String?  @map("display_name")
+  authProvider   String?  @map("auth_provider")
+  authProviderId String?  @map("auth_provider_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  stories Story[]
+
+  @@unique([authProvider, authProviderId])
+  @@map("users")
+}
+
+// ─── Styles (seeded) ─────────────────────────────────────
+
+model Style {
+  id          String @id @default(uuid())
+  name        String
+  slug        String @unique
+  description String
+  emoji       String
+
+  stories Story[]
+
+  @@map("styles")
+}
+
+// ─── Themes (seeded) ─────────────────────────────────────
+
+model Theme {
+  id          String @id @default(uuid())
+  name        String
+  slug        String @unique
+  description String
+  emoji       String
+
+  stories Story[]
+
+  @@map("themes")
+}
+
+// ─── Stories ─────────────────────────────────────────────
+
+model Story {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  styleId     String   @map("style_id")
+  themeId     String   @map("theme_id")
+  currentBeat Int      @default(1) @map("current_beat")
+  isComplete  Boolean  @default(false) @map("is_complete")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  style Style @relation(fields: [styleId], references: [id], onDelete: Cascade)
+  theme Theme @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  beats StoryBeat[]
+
+  @@map("stories")
+}
+
+// ─── Story Beats ─────────────────────────────────────────
+
+model StoryBeat {
+  id           String   @id @default(uuid())
+  storyId      String   @map("story_id")
+  beatNumber   Int      @map("beat_number")
+  segment      String
+  question     String?
+  options      String[] @default([])
+  chosenOption String?  @map("chosen_option")
+  provider     String?
+  rawJson      String?  @map("raw_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, beatNumber])
+  @@map("story_beats")
+}
