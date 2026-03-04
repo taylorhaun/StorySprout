@@ -1,5 +1,46 @@
 # StorySprout — Claude Code Instructions
 
+## About Taylor
+
+Taylor Haun is a fullstack engineer and former educator based in Chicago. Background: music teacher → Spotify/Soundtrap (grew education product from 800 to 600K seats in LAUSD) → Leanlab Education (Director of School R&D). 10+ years in ed-tech. Learning trajectory: started with no-code tools → TypeScript/React/Next.js → currently learning Rust.
+
+### Taylor's Projects (strongest → learning)
+
+1. **StudyFlow** — Production research study management platform for Leanlab Education. Next.js 15, React 19, TypeScript, PostgreSQL, Tailwind. Sole engineer. Live at studyflow.leanlabeducation.org. This is Taylor's most substantial project.
+2. **Haze** — Social place discovery iOS app. React, Vite, Supabase, Capacitor (iOS), OpenAI API, Google Maps/Places API. AI-powered extraction from Instagram posts/screenshots.
+3. **PilotFlow** — AI-powered research design tool for educators. LLM APIs (Claude, OpenAI). Originated as a Playlab prototype, evolved into a custom tool within StudyFlow. Finalist for Renaissance Philanthropy AI Talent Accelerator.
+4. **Leanlab Larry** — Agentic AI assistant using Claude API + MCP, orchestrates across 7 integrated systems for 25+ concurrent research projects.
+5. **StorySprout** (this repo) — AI bedtime story app for ages 3-5. React Router v7, TypeScript, PostgreSQL, Prisma. Learning project to get deeper with React/Remix patterns.
+
+### Current Goal: Playlab Interview Prep
+
+Taylor is interviewing for **Fullstack Engineer** at **Playlab** (tech non-profit, AI tools for educators). Playlab's stack: **TypeScript, Remix (React), Node, PostgreSQL, AWS, Docker, WebSockets**.
+
+**Interview format** (per Wyman at Playlab):
+- Walk throughs (could be Taylor's projects OR Playlab's codebase)
+- Paired programming with an engineer
+- Interviews with core eng team members
+
+**Prep priorities:**
+1. **React fundamentals** — hooks, state, rendering, data flow. Must be fluent, not just familiar.
+2. **Walkthrough readiness** — be able to explain StudyFlow, Haze, or StorySprout architecture, tradeoffs, and decisions clearly and confidently.
+3. **Pairing readiness** — practice coding out loud, narrating decisions, asking clarifying questions, taking feedback.
+4. **Reading unfamiliar code** — be able to walk through a codebase you haven't seen and reason about it.
+5. **Playlab-specific knowledge** — understand their product, mission (AI tools for educators), and how Taylor's ed-tech background connects.
+
+**Key strengths to highlight in interview:**
+- PilotFlow literally originated as a Playlab prototype
+- 10+ years in ed-tech, understands the user (educators + students)
+- Shipped production apps as sole engineer (StudyFlow)
+- Experience with LLM APIs (Claude, OpenAI) across multiple projects
+- Spotify scaling experience (800 → 600K seats)
+
+**When working with Taylor:**
+- Quiz and challenge — don't just give answers, make Taylor reason through things
+- Do mock walkthroughs and mock pairing sessions when asked
+- Flag gaps in understanding honestly so Taylor can address them before the interview
+- Connect new concepts to things Taylor already knows (Next.js, Supabase, Rust where relevant)
+
 ## Project Overview
 
 StorySprout is an interactive AI bedtime story app for ages 3-5. Users pick a **style** and **theme**, then play through a structured 5-beat story arc with simple choose-your-own-adventure choices at each step.
@@ -143,12 +184,21 @@ Safety is enforced at the prompt level (primary) and via keyword blocklist valid
 
 ## Teaching Approach
 
-This is Taylor's learning project. Do NOT just write everything silently. Instead:
+Taylor is preparing for a fullstack engineering interview. The approach should shift depending on context:
+
+**When building features in StorySprout:**
 - Explain what we're doing and why at each step
 - Check Taylor's understanding regularly
-- When introducing new concepts, connect them to Rust/Solidity where possible
+- When introducing new concepts, connect them to Next.js/Supabase patterns Taylor already knows
 - Let Taylor make decisions — present options and ask
 - After writing code, walk through it and ask if it makes sense
+
+**When doing interview prep:**
+- Quiz Taylor on concepts — don't just explain, make Taylor answer first
+- Do mock walkthroughs where Taylor explains architecture and Claude pushes back like an interviewer
+- Do mock pairing where Taylor codes while narrating, and Claude gives real-time feedback
+- Be direct about gaps — if Taylor can't explain something, flag it as a study area
+- Practice reading unfamiliar code and reasoning about it out loud
 
 ## Git Conventions
 
