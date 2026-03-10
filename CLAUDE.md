@@ -54,6 +54,7 @@ This project was bootstrapped from [ChattyKathys](../ChattyKathys/) and shares t
 - **Database:** PostgreSQL via Prisma ORM
 - **Auth:** Custom session cookies + bcrypt; Google + GitHub OAuth planned via `remix-auth`
 - **AI:** Anthropic Claude SDK + OpenAI SDK (dual provider, selected via `AI_PROVIDER` env var)
+- **Image Generation:** OpenAI GPT Image 1 Mini — one illustration per beat, saved to disk
 - **Styling:** Tailwind CSS v4
 - **Containerization:** Docker + Docker Compose (local dev)
 - **Deployment:** AWS (ECS + Fargate + RDS) — planned
@@ -70,7 +71,7 @@ This project was bootstrapped from [ChattyKathys](../ChattyKathys/) and shares t
 
 - Beats 1-4 include a question with exactly 2 choice options
 - Beat 5 auto-ends with no choice
-- Each beat is 80-120 words max
+- Each beat is 50-70 words max
 - Each beat returns strict JSON: `{ beat, segment, question, options }`
 
 ## Styles (Seeded)
@@ -92,13 +93,14 @@ Same framework, same patterns. Files like `db.server.ts` and `auth.server.ts` ar
 Files named `*.server.ts` are excluded from the client bundle:
 - `app/lib/db.server.ts` — Prisma client singleton
 - `app/lib/auth.server.ts` — session cookies, password hashing, `requireUser()`
-- `app/lib/ai.server.ts` — AI provider abstraction (to be implemented)
-- `app/lib/story-engine.server.ts` — beat progression + prompt building (to be implemented)
-- `app/lib/story-prompts.server.ts` — system prompt templates per style/beat (to be implemented)
-- `app/lib/validators.server.ts` — Zod schemas + content safety (to be implemented)
+- `app/lib/ai.server.ts` — AI provider abstraction (Anthropic + OpenAI, streaming + non-streaming)
+- `app/lib/story-engine.server.ts` — beat progression, SSE streaming, DB writes, image triggering
+- `app/lib/story-prompts.server.ts` — system prompt templates per style/beat
+- `app/lib/validators.server.ts` — Zod schemas + content safety blocklist
+- `app/lib/image-engine.server.ts` — OpenAI image generation, style spines, file saving
 
-### Non-Streaming Beat Generation
-Unlike ChattyKathys (SSE streaming), StorySprout uses standard request/response. Each beat is a single AI API call that returns complete JSON. Reasoning: can't show partial JSON meaningfully, 2-4s latency is fine for the use case.
+### Streaming Beat Generation + Async Image Generation
+Beat text is streamed to the client via SSE. The server parses JSON as it streams, extracts just the `segment` value in real-time, and sends story prose to the client. After the text completes, the server triggers image generation via OpenAI and sends the image URL as a follow-up SSE event. The UI shows the text immediately with a "Painting the scene..." placeholder that resolves when the image is ready.
 
 ### No Unique Constraint on Stories
 Kids can replay the same style+theme combination multiple times. Each story is a discrete play-through.
@@ -116,12 +118,17 @@ app/
 │   ├── signup.tsx            # Email/password signup
 │   ├── logout.tsx            # Logout action (POST only)
 │   ├── story.new.tsx         # Story creation — pick style + theme
-│   ├── story.$storyId.tsx    # Story playback — beats + choices
+│   ├── story.$storyId.tsx    # Story playback — full-screen picture book UI
 │   └── api.story-beat.tsx    # API: generate next beat (resource route)
 ├── components/               # (to be added as needed)
 ├── lib/
 │   ├── db.server.ts          # Prisma client singleton
-│   └── auth.server.ts        # Session, cookies, bcrypt
+│   ├── auth.server.ts        # Session, cookies, bcrypt
+│   ├── ai.server.ts          # Anthropic + OpenAI text generation
+│   ├── story-engine.server.ts # Beat orchestration, SSE streaming, image triggering
+│   ├── story-prompts.server.ts # System prompts per style/beat
+│   ├── validators.server.ts  # Zod schemas + content safety
+│   └── image-engine.server.ts # OpenAI image gen, style spines, file saving
 └── app.css                   # Tailwind v4 import + theme
 ```
 
@@ -130,8 +137,8 @@ app/
 Five tables: `users`, `styles`, `themes`, `stories`, `story_beats`.
 
 - Styles and themes are seeded (not user-created). Seed data lives in `storySproutConfig.ts`.
-- Stories track `currentBeat` (1-5) and `isComplete`.
-- StoryBeats store `segment`, `question`, `options` (text[]), `chosenOption`, and `rawJson` for debugging.
+- Stories track `currentBeat` (1-5), `isComplete`, and `characterDescription` (extracted from beat 1 for image prompt consistency).
+- StoryBeats store `segment`, `question`, `options` (text[]), `chosenOption`, `rawJson` for debugging, and `imageLeftUrl` for the generated illustration.
 - All IDs are UUIDs.
 - User model supports nullable email/passwordHash for future OAuth-only users.
 
@@ -167,7 +174,7 @@ Copy `.env.example` to `.env` and fill in:
 - `DATABASE_URL` — Postgres connection string (default: `localhost:5434/storysprout`)
 - `SESSION_SECRET` — random hex string for signing cookies
 - `ANTHROPIC_API_KEY` — Claude API key
-- `OPENAI_API_KEY` — OpenAI API key
+- `OPENAI_API_KEY` — OpenAI API key (used for story text when `AI_PROVIDER=openai`, and always for image generation)
 - `AI_PROVIDER` — `"anthropic"` (default) or `"openai"`
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — for Google OAuth (optional until implemented)
 - `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — for GitHub OAuth (optional until implemented)
@@ -178,7 +185,7 @@ This app is for children aged 3-5. All AI-generated content must be:
 - Age-appropriate — simple vocabulary, short sentences
 - Positive — no violence, danger, sadness, fear, villains, darkness
 - Safe — both choice options lead to equally happy outcomes
-- Bounded — max 120 words per beat segment
+- Bounded — max 70 words per beat segment
 
 Safety is enforced at the prompt level (primary) and via keyword blocklist validation (backup).
 
