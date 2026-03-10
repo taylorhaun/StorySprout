@@ -10,3 +10,6 @@
 
 # Local env files
 .env.local
+
+# Generated story images
+/public/images/stories/

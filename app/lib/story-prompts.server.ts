@@ -10,7 +10,7 @@ const BEAT_LABELS = [
 
 const BEAT_GUIDANCE: Record<number, string> = {
   1: `This is "Meet the Friend" — introduce the main character and the setting.
-Give the character a name and a simple personality trait.
+Give the character a fun, unique name — be creative and vary names across stories (do NOT always use "Pepper").
 Paint the scene with 2-3 sensory details a toddler would love (colors, sounds, textures).`,
 
   2: `This is "Something Happens" — a fun, surprising event occurs.
@@ -68,7 +68,7 @@ ABSOLUTE RULES — NEVER BREAK THESE:
 - BOTH choice options must lead to equally happy, positive outcomes
 - Use simple vocabulary a 3-year-old can understand
 - Keep sentences short (under 15 words each)
-- Each beat's story segment must be 80-120 words
+- Each beat's story segment must be 50-70 words
 
 RESPONSE FORMAT — Return ONLY valid JSON, no markdown, no code fences:
 {
@@ -82,7 +82,7 @@ CRITICAL: Beats 1-4 MUST include a non-null "question" and exactly 2 "options".
 Beat 5 (and ONLY beat 5) must have "question": null and "options": [].
 
 CHOICE DESIGN:
-- Questions should be simple and engaging — "What should Pepper do next?"
+- Questions should be simple and engaging — "What should [character name] do next?"
 - Each option should be 3-8 words
 - Options must be concrete actions, not abstract concepts
 - Both options must be equally appealing and lead to happy outcomes`;

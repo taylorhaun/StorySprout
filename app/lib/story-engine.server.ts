@@ -6,6 +6,10 @@ import {
   type PromptContext,
 } from "./story-prompts.server.js";
 import { validateBeatResponse } from "./validators.server.js";
+import {
+  generateBeatImage,
+  extractCharacterPrompt,
+} from "./image-engine.server.js";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -13,6 +17,7 @@ export interface StoryWithRelations {
   id: string;
   currentBeat: number;
   isComplete: boolean;
+  characterDescription: string | null;
   style: { slug: string; name: string };
   theme: { name: string };
   beats: Array<{
@@ -116,21 +121,36 @@ export function createBeatStream(
 
         if (validation.success) {
           // Save and send complete event
-          const beat = await saveBeat(
-            story.id,
+          const beatResult = await saveBeat(
+            story,
             nextBeatNumber,
             validation.data,
             getProvider(),
             fullResponse
           );
+          const { imagePromise, ...beat } = beatResult;
           send(JSON.stringify({ type: "complete", beat }));
+
+          // Wait for image and send as a separate event
+          if (imagePromise) {
+            const image = await imagePromise;
+            if (image) {
+              send(
+                JSON.stringify({
+                  type: "image",
+                  beatId: beat.id,
+                  imageUrl: image.imageUrl,
+                })
+              );
+            }
+          }
         } else {
           // Validation failed — try non-streaming retry
           console.warn(
             `[story-engine] Stream validation failed: ${validation.error}. Retrying...`
           );
           const retryResult = await retryNonStreaming(
-            story.id,
+            story,
             nextBeatNumber,
             systemPrompt,
             userMessage
@@ -138,6 +158,19 @@ export function createBeatStream(
 
           if (retryResult.success) {
             send(JSON.stringify({ type: "complete", beat: retryResult.beat }));
+            // Wait for image from retry
+            if (retryResult.imagePromise) {
+              const image = await retryResult.imagePromise;
+              if (image) {
+                send(
+                  JSON.stringify({
+                    type: "image",
+                    beatId: (retryResult.beat as Record<string, unknown>).id,
+                    imageUrl: image.imageUrl,
+                  })
+                );
+              }
+            }
           } else {
             send(
               JSON.stringify({ type: "error", message: retryResult.error })
@@ -213,7 +246,7 @@ export async function updatePreviousBeat(
 // ─── Save Beat + Update Story Progress ───────────────────────
 
 async function saveBeat(
-  storyId: string,
+  story: StoryWithRelations,
   beatNumber: number,
   data: { segment: string; question: string | null; options: string[] },
   provider: string,
@@ -221,7 +254,7 @@ async function saveBeat(
 ) {
   const newBeat = await prisma.storyBeat.create({
     data: {
-      storyId,
+      storyId: story.id,
       beatNumber,
       segment: data.segment,
       question: data.question,
@@ -231,12 +264,40 @@ async function saveBeat(
     },
   });
 
-  await prisma.story.update({
-    where: { id: storyId },
-    data: {
-      currentBeat: beatNumber,
-      isComplete: beatNumber === 5,
-    },
+  // For beat 1, extract and store the character description
+  let characterDescription = story.characterDescription;
+  if (beatNumber === 1) {
+    characterDescription = extractCharacterPrompt(data.segment);
+    await prisma.story.update({
+      where: { id: story.id },
+      data: {
+        currentBeat: beatNumber,
+        characterDescription,
+      },
+    });
+  } else {
+    await prisma.story.update({
+      where: { id: story.id },
+      data: {
+        currentBeat: beatNumber,
+        isComplete: beatNumber === 5,
+      },
+    });
+  }
+
+  // Generate image for this beat (fire-and-forget pattern —
+  // we'll send image URL as a separate SSE event)
+  const imagePromise = generateBeatImage({
+    storyId: story.id,
+    beatId: newBeat.id,
+    beatNumber,
+    segment: data.segment,
+    characterDescription: characterDescription ?? data.segment,
+    styleSlug: story.style.slug,
+    themeName: story.theme.name,
+  }).catch((err) => {
+    console.error("[story-engine] Image generation failed:", err);
+    return null;
   });
 
   return {
@@ -248,18 +309,21 @@ async function saveBeat(
     chosenOption: newBeat.chosenOption,
     provider: newBeat.provider,
     rawJson: newBeat.rawJson,
+    imageLeftUrl: newBeat.imageLeftUrl,
+    imageRightUrl: newBeat.imageRightUrl,
+    imagePromise,
   };
 }
 
 // ─── Non-Streaming Retry ─────────────────────────────────────
 
 async function retryNonStreaming(
-  storyId: string,
+  story: StoryWithRelations,
   beatNumber: number,
   systemPrompt: string,
   userMessage: string
 ): Promise<
-  | { success: true; beat: ReturnType<typeof saveBeat> extends Promise<infer T> ? T : never }
+  | { success: true; beat: Record<string, unknown>; imagePromise: Promise<{ imageUrl: string } | null> | null }
   | { success: false; error: string }
 > {
   try {
@@ -270,15 +334,16 @@ async function retryNonStreaming(
       return { success: false, error: validation.error };
     }
 
-    const beat = await saveBeat(
-      storyId,
+    const beatResult = await saveBeat(
+      story,
       beatNumber,
       validation.data,
       result.provider,
       result.text
     );
+    const { imagePromise, ...beat } = beatResult;
 
-    return { success: true, beat };
+    return { success: true, beat, imagePromise };
   } catch (err) {
     return {
       success: false,

@@ -55,14 +55,15 @@ model Theme {
 // ─── Stories ─────────────────────────────────────────────
 
 model Story {
-  id          String   @id @default(uuid())
-  userId      String   @map("user_id")
-  styleId     String   @map("style_id")
-  themeId     String   @map("theme_id")
-  currentBeat Int      @default(1) @map("current_beat")
-  isComplete  Boolean  @default(false) @map("is_complete")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                   String   @id @default(uuid())
+  userId               String   @map("user_id")
+  styleId              String   @map("style_id")
+  themeId              String   @map("theme_id")
+  currentBeat          Int      @default(1) @map("current_beat")
+  isComplete           Boolean  @default(false) @map("is_complete")
+  characterDescription String?  @map("character_description")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   style Style @relation(fields: [styleId], references: [id], onDelete: Cascade)
@@ -84,6 +85,8 @@ model StoryBeat {
   chosenOption String?  @map("chosen_option")
   provider     String?
   rawJson      String?  @map("raw_json")
+  imageLeftUrl  String?  @map("image_left_url")
+  imageRightUrl String?  @map("image_right_url")
   createdAt    DateTime @default(now()) @map("created_at")
 
   story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)

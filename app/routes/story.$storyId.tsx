@@ -39,44 +39,59 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export default function StoryPage() {
   const { story } = useLoaderData<typeof loader>();
   const [beats, setBeats] = useState(story.beats);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingText, setIsGeneratingText] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const streamEndRef = useRef<HTMLDivElement>(null);
+  const [beatImages, setBeatImages] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const beat of story.beats) {
+      if (beat.imageLeftUrl) {
+        initial[beat.id] = beat.imageLeftUrl;
+      }
+    }
+    return initial;
+  });
+  const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState(() => {
+    // Start on the latest beat, or 0 for "begin" screen
+    return Math.max(0, story.beats.length - 1);
+  });
 
   const isComplete = story.isComplete || beats.some((b) => b.beatNumber === 5);
-  const latestBeat = beats[beats.length - 1];
+  const currentBeat = beats[currentPage] ?? null;
   const needsFirstBeat = beats.length === 0;
-  const isStreaming = isLoading && streamingText.length > 0;
+  const isStreaming = isGeneratingText && streamingText.length > 0;
 
-  // The beat number currently being generated
-  const nextBeatNumber = beats.length + 1;
-
-  // Should we show choice buttons?
+  // Should we show choice buttons for the current page?
   const showChoices =
     !isComplete &&
-    !isLoading &&
-    latestBeat &&
-    latestBeat.question &&
-    !latestBeat.chosenOption;
+    !isGeneratingText &&
+    currentBeat &&
+    currentBeat.question &&
+    !currentBeat.chosenOption &&
+    currentPage === beats.length - 1;
 
-  // Auto-scroll to bottom as streaming text arrives
+  // Can navigate back/forward through already-viewed beats
+  const canGoBack = currentPage > 0;
+  const canGoForward = currentPage < beats.length - 1;
+
+  // Auto-advance to new beat when it arrives
   useEffect(() => {
-    if (isStreaming) {
-      streamEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (beats.length > 0 && !isGeneratingText) {
+      setCurrentPage(beats.length - 1);
     }
-  }, [streamingText, isStreaming]);
+  }, [beats.length, isGeneratingText]);
 
   async function handleChoice(chosenOption: string | null) {
-    setIsLoading(true);
+    setIsGeneratingText(true);
     setStreamingText("");
     setError(null);
 
     // Mark the previous beat's choice locally
-    if (chosenOption && latestBeat) {
+    if (chosenOption && currentBeat) {
       setBeats((prev) =>
         prev.map((b) =>
-          b.id === latestBeat.id ? { ...b, chosenOption } : b
+          b.id === currentBeat.id ? { ...b, chosenOption } : b
         )
       );
     }
@@ -108,9 +123,7 @@ export default function StoryPage() {
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Process complete SSE lines
         const lines = buffer.split("\n");
-        // Keep the last (potentially incomplete) line in the buffer
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
@@ -123,17 +136,26 @@ export default function StoryPage() {
             const parsed = JSON.parse(data);
 
             if (typeof parsed === "string") {
-              // Raw text chunk — append to streaming display
               setStreamingText((prev) => prev + parsed);
             } else if (parsed.type === "complete") {
-              // Final beat with all metadata — add to beats array
               setBeats((prev) => [...prev, parsed.beat]);
               setStreamingText("");
+              setIsGeneratingText(false); // text is done — show the beat page
+              setLoadingImages((prev) => new Set(prev).add(parsed.beat.id));
+            } else if (parsed.type === "image") {
+              setBeatImages((prev) => ({
+                ...prev,
+                [parsed.beatId]: parsed.imageUrl,
+              }));
+              setLoadingImages((prev) => {
+                const next = new Set(prev);
+                next.delete(parsed.beatId);
+                return next;
+              });
             } else if (parsed.type === "error") {
               throw new Error(parsed.message);
             }
           } catch (e) {
-            // If JSON.parse fails on a chunk, it's a malformed SSE line — skip
             if (e instanceof SyntaxError) continue;
             throw e;
           }
@@ -142,130 +164,192 @@ export default function StoryPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
       setStreamingText("");
-    } finally {
-      setIsLoading(false);
+      setIsGeneratingText(false);
     }
   }
 
+  // ─── Render ─────────────────────────────────────────────
+
   return (
-    <div className="min-h-screen bg-cream">
-      <header className="flex items-center justify-between px-6 py-4">
-        <Link to="/" className="text-xl font-bold text-sprout">
+    <div className="flex h-screen flex-col overflow-hidden bg-cream">
+      {/* Header — compact */}
+      <header className="flex shrink-0 items-center justify-between px-4 py-2">
+        <Link to="/" className="text-lg font-bold text-sprout">
           🌱 StorySprout
         </Link>
-        <div className="text-sm text-gray-500">
+        <div className="text-xs text-gray-400">
           {story.style.emoji} {story.style.name} &middot; {story.theme.emoji}{" "}
           {story.theme.name}
         </div>
       </header>
 
-      {/* Beat Progress */}
-      <div className="mx-auto flex max-w-md items-center justify-center gap-2 px-6 py-4">
+      {/* Beat Progress Dots */}
+      <div className="flex shrink-0 items-center justify-center gap-3 py-1">
         {BEAT_LABELS.map((label, i) => {
           const beatNum = i + 1;
           const isDone = beats.some((b) => b.beatNumber === beatNum);
-          const isCurrent =
-            !isDone && (beats.length === 0 ? beatNum === 1 : beatNum === (latestBeat?.beatNumber ?? 0) + 1);
+          const isActive = currentBeat?.beatNumber === beatNum;
 
           return (
-            <div key={beatNum} className="flex flex-col items-center gap-1">
+            <button
+              key={beatNum}
+              onClick={() => {
+                const idx = beats.findIndex((b) => b.beatNumber === beatNum);
+                if (idx >= 0) setCurrentPage(idx);
+              }}
+              disabled={!isDone}
+              className="flex flex-col items-center gap-0.5"
+            >
               <div
-                className={`h-3 w-3 rounded-full transition ${
-                  isDone
-                    ? "bg-sprout"
-                    : isCurrent
-                      ? "animate-pulse bg-sprout-light"
+                className={`h-2.5 w-2.5 rounded-full transition ${
+                  isActive
+                    ? "scale-125 bg-sprout"
+                    : isDone
+                      ? "bg-sprout opacity-50"
                       : "bg-gray-300"
                 }`}
               />
-              <span className="text-[10px] text-gray-400">{label}</span>
-            </div>
+              <span className="text-[9px] text-gray-400">{label}</span>
+            </button>
           );
         })}
       </div>
 
-      {/* Story Content */}
-      <main className="mx-auto max-w-2xl px-6 py-6">
-        {/* Completed Beats */}
-        {beats.map((beat) => (
-          <div key={beat.id} className="mb-8">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-sprout-light">
-              {BEAT_LABELS[beat.beatNumber - 1]}
+      {/* Main Content — fills remaining space */}
+      <main className="relative flex min-h-0 flex-1 flex-col items-center px-4 pb-4">
+        {/* "Begin the Story" screen */}
+        {needsFirstBeat && !isGeneratingText && (
+          <div className="flex flex-1 flex-col items-center justify-center">
+            <p className="mb-6 text-2xl font-bold text-gray-700">
+              {story.theme.emoji} Ready for an adventure?
             </p>
-            <div className="rounded-2xl bg-white p-6 shadow-sm">
-              <p className="whitespace-pre-wrap text-lg leading-relaxed text-gray-700">
-                {beat.segment}
-              </p>
-            </div>
-            {beat.chosenOption && (
-              <p className="mt-2 text-center text-sm text-gray-400">
-                You chose: <span className="font-medium text-teal">{beat.chosenOption}</span>
-              </p>
-            )}
-          </div>
-        ))}
-
-        {/* Streaming Text (live AI generation) */}
-        {isStreaming && (
-          <div className="mb-8">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-sprout-light">
-              {BEAT_LABELS[nextBeatNumber - 1]}
-            </p>
-            <div className="rounded-2xl bg-white p-6 shadow-sm">
-              <p className="whitespace-pre-wrap text-lg leading-relaxed text-gray-700">
-                {streamingText}
-                <span className="ml-0.5 inline-block animate-pulse text-sprout">|</span>
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* First beat trigger */}
-        {needsFirstBeat && !isLoading && (
-          <div className="text-center">
             <button
               onClick={() => handleChoice(null)}
-              className="rounded-2xl bg-sprout px-10 py-3 text-lg font-semibold text-white shadow-lg hover:bg-sprout-dark"
+              className="rounded-2xl bg-sprout px-10 py-4 text-xl font-semibold text-white shadow-lg hover:bg-sprout-dark"
             >
               Begin the Story
             </button>
           </div>
         )}
 
-        {/* Choice Buttons */}
-        {showChoices && latestBeat && (
-          <div className="mt-4 space-y-3 text-center">
-            <p className="text-lg font-medium text-gray-700">{latestBeat.question}</p>
-            <div className="flex justify-center gap-4">
-              {latestBeat.options.map((option, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleChoice(option)}
-                  className={`rounded-2xl px-8 py-3 text-lg font-semibold text-white shadow-md transition ${
-                    i === 0
-                      ? "bg-sprout hover:bg-sprout-dark"
-                      : "bg-teal hover:bg-teal-dark"
-                  }`}
-                >
-                  {option}
-                </button>
-              ))}
+        {/* Loading / Streaming — shown while generating */}
+        {isGeneratingText && (
+          <div className="flex flex-1 flex-col items-center justify-center">
+            {isStreaming ? (
+              <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-sm">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-sprout-light">
+                  {BEAT_LABELS[(beats.length) - 1] ?? ""}
+                </p>
+                <p className="whitespace-pre-wrap text-lg leading-relaxed text-gray-700">
+                  {streamingText}
+                  <span className="ml-0.5 inline-block animate-pulse text-sprout">|</span>
+                </p>
+              </div>
+            ) : (
+              <p className="animate-pulse text-xl text-gray-400">
+                Turning the page...
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Current Beat — the "page" */}
+        {!isGeneratingText && currentBeat && (
+          <div className="flex min-h-0 flex-1 flex-col items-center w-full max-w-2xl">
+            {/* Image — takes up as much space as possible */}
+            {(() => {
+              const imageUrl = beatImages[currentBeat.id] ?? currentBeat.imageLeftUrl ?? null;
+              const isWaiting = loadingImages.has(currentBeat.id);
+
+              if (imageUrl) {
+                return (
+                  <div className="min-h-0 flex-1 w-full flex items-center justify-center py-2">
+                    <img
+                      src={imageUrl}
+                      alt="Story illustration"
+                      className="max-h-full max-w-full rounded-3xl object-contain shadow-md"
+                    />
+                  </div>
+                );
+              }
+              if (isWaiting) {
+                return (
+                  <div className="min-h-0 flex-1 w-full flex items-center justify-center py-2">
+                    <div className="flex aspect-square h-full max-h-[60vh] items-center justify-center rounded-3xl bg-purple-50 shadow-md">
+                      <p className="animate-pulse text-lg text-sprout-light">
+                        Painting the scene...
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            {/* Story Text — compact below image */}
+            <div className="w-full shrink-0 py-2">
+              <div className="rounded-2xl bg-white px-5 py-4 shadow-sm">
+                <p className="whitespace-pre-wrap text-base leading-relaxed text-gray-700">
+                  {currentBeat.segment}
+                </p>
+              </div>
+            </div>
+
+            {/* Choice Buttons or Navigation */}
+            <div className="w-full shrink-0 pb-2">
+              {showChoices && (
+                <div className="space-y-2 text-center">
+                  <p className="text-base font-medium text-gray-700">
+                    {currentBeat.question}
+                  </p>
+                  <div className="flex justify-center gap-3">
+                    {currentBeat.options.map((option, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleChoice(option)}
+                        className={`rounded-2xl px-6 py-3 text-base font-semibold text-white shadow-md transition ${
+                          i === 0
+                            ? "bg-sprout hover:bg-sprout-dark"
+                            : "bg-teal hover:bg-teal-dark"
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Story Complete */}
+              {isComplete && currentPage === beats.length - 1 && (
+                <div className="text-center">
+                  <p className="text-3xl">🌟</p>
+                  <h2 className="text-xl font-bold text-gray-800">The End</h2>
+                  <p className="text-sm text-gray-500">Sweet dreams!</p>
+                  <div className="mt-3 flex justify-center gap-3">
+                    <Link
+                      to="/story/new"
+                      className="rounded-2xl bg-sprout px-6 py-2 text-base font-semibold text-white shadow-lg hover:bg-sprout-dark"
+                    >
+                      New Story
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {/* Past beat — show what was chosen */}
+              {currentBeat.chosenOption && currentPage < beats.length - 1 && (
+                <p className="text-center text-sm text-gray-400">
+                  You chose: <span className="font-medium text-teal">{currentBeat.chosenOption}</span>
+                </p>
+              )}
             </div>
           </div>
         )}
 
-        {/* Loading (before streaming starts) */}
-        {isLoading && !isStreaming && (
-          <div className="mt-8 text-center">
-            <p className="animate-pulse text-lg text-gray-400">
-              Turning the page...
-            </p>
-          </div>
-        )}
-
         {/* Error */}
-        {error && (
-          <div className="mt-4 text-center">
+        {error && !isGeneratingText && (
+          <div className="flex flex-1 flex-col items-center justify-center">
             <p className="text-red-500">{error}</p>
             <button
               onClick={() => handleChoice(null)}
@@ -276,30 +360,29 @@ export default function StoryPage() {
           </div>
         )}
 
-        {/* Story Complete */}
-        {isComplete && (
-          <div className="mt-8 text-center">
-            <p className="text-4xl">🌟</p>
-            <h2 className="mt-2 text-2xl font-bold text-gray-800">The End</h2>
-            <p className="mt-1 text-gray-500">Sweet dreams!</p>
-            <div className="mt-6 flex justify-center gap-4">
-              <Link
-                to="/library"
-                className="inline-block rounded-2xl bg-white px-8 py-3 text-lg font-semibold text-gray-600 shadow-lg hover:bg-gray-50"
+        {/* Left / Right Navigation Arrows */}
+        {beats.length > 0 && !isGeneratingText && (
+          <>
+            {canGoBack && (
+              <button
+                onClick={() => setCurrentPage((p) => p - 1)}
+                className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/80 p-2 text-2xl text-gray-400 shadow-md backdrop-blur-sm hover:bg-white hover:text-gray-600"
+                aria-label="Previous page"
               >
-                My Stories
-              </Link>
-              <Link
-                to="/story/new"
-                className="inline-block rounded-2xl bg-sprout px-8 py-3 text-lg font-semibold text-white shadow-lg hover:bg-sprout-dark"
+                ‹
+              </button>
+            )}
+            {canGoForward && (
+              <button
+                onClick={() => setCurrentPage((p) => p + 1)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/80 p-2 text-2xl text-gray-400 shadow-md backdrop-blur-sm hover:bg-white hover:text-gray-600"
+                aria-label="Next page"
               >
-                New Story
-              </Link>
-            </div>
-          </div>
+                ›
+              </button>
+            )}
+          </>
         )}
-
-        <div ref={streamEndRef} />
       </main>
     </div>
   );
